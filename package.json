@@ -1,0 +1,31 @@
+{
+  "name": "clang-format-action",
+  "version": "1.0.0",
+  "description": "This action runs `clang-format` on tracked C and C++ source files, and and opens or updates a pull request with the resulting diff and diagnostic summary.",
+  "main": "src/index.js",
+  "scripts": {
+    "check": "node --check src/index.js",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/djoezeke/clang-format-action.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/djoezeke/clang-format-action/issues"
+  },
+  "homepage": "https://github.com/djoezeke/clang-format-action#readme",
+  "dependencies": {
+    "@actions/core": "^3.0.0",
+    "@actions/github": "^9.0.0"
+  },
+  "devDependencies": {
+    "jest": "^29.0.0"
+  }
+}
