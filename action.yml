@@ -1,5 +1,5 @@
 name: clang-format-action
-description: Run clang-format across tracked source files, apply safe fixes, and open a pull request with the resulting diff.
+description: Run clang-format diagnostics, optionally apply fixes, and publish review feedback on pull requests.
 author: Sackey Ezekiel Etrue
 
 inputs:
@@ -19,11 +19,11 @@ inputs:
     required: false
     default: .git
   format_file:
-    description: clang-format format files.
+    description: Apply clang-format fixes in place (`-i`) for each analyzed file.
     required: false
     default: "true"
   create_pull_request:
-    description: Create or update a pull request with the fixes.
+    description: Create or update a pull request when formatting changes were applied.
     required: false
     default: "true"
   base_branch:
@@ -47,7 +47,7 @@ inputs:
     required: false
     default: ""
   thread_comments:
-    description: Leave thread comments on the pull request. Options 'update', 'create', or 'off'.
+    description: Leave an issue-thread report comment on the pull request. Options `update`, `create`, or `off`.
     required: false
     default: "update"
   analysis_scope:
@@ -55,23 +55,23 @@ inputs:
     required: false
     default: "all"
   format_review:
-    description: Create a PR review when clang-format issues are found.
+    description: Create a pull request review when clang-format diagnostics are found.
     required: false
     default: "true"
   review_event:
-    description: Review event when posting PR review. Options 'comment' or 'request_changes'.
+    description: Review event for pull request reviews. Options `comment` or `request_changes`.
     required: false
     default: "comment"
   file_annotations:
-    description: Create GitHub file annotations for clang-format issues.
+    description: Create GitHub file annotations for reported diagnostics.
     required: false
     default: "true"
   fail_on_diagnostics:
-    description: Fail the action if clang-format finds any issues.
+    description: Legacy fail policy. When true, fail if any diagnostics are found.
     required: false
     default: "false"
   max_comments:
-    description: Maximum number of comments to post (0 = unlimited).
+    description: Maximum inline review comments to post (0 = unlimited).
     required: false
     default: "0"
   suppress_warnings:
@@ -79,11 +79,11 @@ inputs:
     required: false
     default: "false"
   max_diagnostics:
-    description: Maximum number of diagnostics used for review comments, annotations, and report output (0 = unlimited).
+    description: Maximum diagnostics included in review/annotation/report surfaces (0 = unlimited).
     required: false
     default: "0"
   fail_on:
-    description: Failure policy. Options 'none' (never fail), 'error' (fail on errors), or 'all' (fail on any warning/error).
+    description: Failure policy. Options `none`, `error`, or `all`.
     required: false
     default: "none"
 

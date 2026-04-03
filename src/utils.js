@@ -1,12 +1,13 @@
 /**
  * Utility functions for clang-format action
  */
-const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
 
 function normalizePathForMatch(value) {
-  return value.replace(/\\/g, "/").replace(/^\.\//, "");
+  return String(value || "")
+    .replace(/\\/g, "/")
+    .replace(/^\.\//, "");
 }
 
 function sanitizeBranchSegment(value) {
@@ -60,7 +61,7 @@ function parseDiagnostics(output) {
   const diagnostics = [];
   const lines = String(output || "").split(/\r?\n/);
   const pattern =
-    /^(.*):(\d+):(\d+):\s+(warning|error|note):\s+(.*?)(?:\s+\[(.*)\])?$/;
+    /^(.*?):(\d+):(\d+):\s+(warning|error|note):\s+(.*?)(?:\s+\[(.*)\])?$/;
 
   for (const line of lines) {
     const match = line.match(pattern);
@@ -69,7 +70,7 @@ function parseDiagnostics(output) {
     }
 
     diagnostics.push({
-      file: match[1],
+      file: normalizePathForMatch(match[1]),
       line: Number(match[2]),
       column: Number(match[3]),
       level: match[4],
@@ -81,32 +82,45 @@ function parseDiagnostics(output) {
   return diagnostics;
 }
 
+function normalizeExtension(ext) {
+  const value = String(ext || "")
+    .trim()
+    .toLowerCase();
+  if (!value) {
+    return "";
+  }
+  return value.startsWith(".") ? value : `.${value}`;
+}
+
 function isExcluded(file, excludes) {
   const normalized = normalizePathForMatch(file);
+
   return excludes.some((entry) => {
-    const normalizedEntry = normalizePathForMatch(entry);
+    const needle = normalizePathForMatch(entry);
+    if (!needle) {
+      return false;
+    }
+
     return (
-      normalized === normalizedEntry ||
-      normalized.startsWith(`${normalizedEntry}/`) ||
-      normalized.includes(`/${normalizedEntry}/`) ||
-      normalized.includes(`/${normalizedEntry}`) ||
-      normalized.includes(normalizedEntry)
+      normalized === needle ||
+      normalized.startsWith(`${needle}/`) ||
+      normalized.includes(`/${needle}/`)
     );
   });
 }
 
 function filterSourceFiles(files, extensions, excludes) {
   const extSet = new Set(
-    extensions.map((ext) =>
-      (ext.startsWith(".") ? ext : `.${ext}`).toLowerCase(),
-    ),
+    (extensions || []).map(normalizeExtension).filter(Boolean),
   );
-  return files.filter((file) => {
+
+  return (files || []).filter((file) => {
     const normalized = normalizePathForMatch(file);
-    if (isExcluded(normalized, excludes)) {
+    if (!normalized || isExcluded(normalized, excludes || [])) {
       return false;
     }
-    return extSet.has(path.extname(normalized).toLowerCase());
+    const ext = path.extname(normalized).toLowerCase();
+    return extSet.size === 0 ? true : extSet.has(ext);
   });
 }
 
@@ -116,7 +130,7 @@ function markdownEscape(value) {
 
 function groupDiagnosticsByFile(diagnostics) {
   const grouped = {};
-  for (const diag of diagnostics) {
+  for (const diag of diagnostics || []) {
     if (!grouped[diag.file]) {
       grouped[diag.file] = [];
     }
@@ -128,11 +142,11 @@ function groupDiagnosticsByFile(diagnostics) {
 function countDiagnosticsSeverity(diagnostics) {
   let warnings = 0;
   let errors = 0;
-  for (const diag of diagnostics) {
+  for (const diag of diagnostics || []) {
     if (diag.level === "error") {
-      errors++;
+      errors += 1;
     } else if (diag.level === "warning") {
-      warnings++;
+      warnings += 1;
     }
   }
   return { warnings, errors };
@@ -154,12 +168,15 @@ function normalizeThreadCommentsMode(mode) {
   const normalized = String(mode || "update")
     .trim()
     .toLowerCase();
+
   if (["off", "none", "false", "0"].includes(normalized)) {
     return "off";
   }
+
   if (normalized === "create") {
     return "create";
   }
+
   return "update";
 }
 
@@ -180,10 +197,6 @@ function shouldFailAnalysis({
 
   if (["error", "errors"].includes(normalized)) {
     return errors > 0;
-  }
-
-  if (["none", "false", "0"].includes(normalized)) {
-    return Boolean(failOnDiagnostics) && total > 0;
   }
 
   return Boolean(failOnDiagnostics) && total > 0;

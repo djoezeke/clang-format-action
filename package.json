@@ -1,7 +1,7 @@
 {
   "name": "clang-format-action",
   "version": "1.0.0",
-  "description": "This action runs `clang-format` on tracked C and C++ source files, and and opens or updates a pull request with the resulting diff and diagnostic summary.",
+  "description": "GitHub Action that runs clang-format diagnostics, applies optional fixes, and posts pull request review feedback.",
   "main": "src/index.js",
   "scripts": {
     "check": "node --check src/index.js",

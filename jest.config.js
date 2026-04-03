@@ -1,5 +1,5 @@
 /**
- * Jest configuration for clang-tidy action tests
+ * Jest configuration for clang-format action tests
  */
 module.exports = {
   testEnvironment: "node",

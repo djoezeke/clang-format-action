@@ -1,104 +1,134 @@
 /**
- * Pull Request review functionality
+ * Pull request review library for clang-format diagnostics
  */
 const core = require("@actions/core");
+const utils = require("./utils");
 
-/**
- * Create a PR review with inline comments for diagnostics
- */
-async function createReviewWithComments(
+const REVIEW_MARKER = "<!-- clang-format-action:report -->";
+
+function formatDiagnosticLine(diag) {
+  const level = String(diag.level || "note").toLowerCase();
+  const emoji = level === "error" ? "❌" : level === "warning" ? "⚠️" : "ℹ️";
+  const details = diag.check ? ` [${diag.check}]` : "";
+  return `${emoji} ${diag.file}:${diag.line}:${diag.column} — ${diag.message}${details}`;
+}
+
+function buildReviewBody({
+  diagnostics,
+  totalDiagnostics,
+  warnings,
+  errors,
+  maxDiagnostics,
+  suppressWarnings,
+  changedFiles,
+}) {
+  const lines = ["## clang-format Review", "", REVIEW_MARKER, ""];
+  lines.push(`- Diagnostics found: **${totalDiagnostics}**`);
+  lines.push(`- Diagnostics reported: **${diagnostics.length}**`);
+  lines.push(`- Errors: **${errors}**`);
+  lines.push(`- Warnings: **${warnings}**`);
+
+  if (suppressWarnings) {
+    lines.push("- Warning diagnostics were suppressed from comments.");
+  }
+
+  if (maxDiagnostics > 0 && totalDiagnostics > diagnostics.length) {
+    lines.push(
+      `- Output limited to first **${maxDiagnostics}** diagnostics for review surfaces.`,
+    );
+  }
+
+  if (Array.isArray(changedFiles) && changedFiles.length > 0) {
+    lines.push(`- Files auto-formatted: **${changedFiles.length}**`);
+  }
+
+  lines.push("");
+
+  if (diagnostics.length === 0) {
+    lines.push("✅ No diagnostics to report after filters.");
+    return lines.join("\n");
+  }
+
+  lines.push("### Reported diagnostics");
+  lines.push("");
+
+  const grouped = utils.groupDiagnosticsByFile(diagnostics);
+  const files = Object.keys(grouped).sort((a, b) => a.localeCompare(b));
+  for (const file of files) {
+    lines.push(`#### ${file}`);
+    lines.push("");
+    for (const diag of grouped[file].sort((a, b) => a.line - b.line)) {
+      lines.push(`- ${formatDiagnosticLine(diag)}`);
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n");
+}
+
+function buildInlineComments(diagnostics, maxComments = 0) {
+  const limited =
+    maxComments > 0 ? diagnostics.slice(0, maxComments) : diagnostics;
+  return limited
+    .filter((diag) => Number.isFinite(diag.line) && diag.line > 0)
+    .map((diag) => ({
+      path: diag.file,
+      line: diag.line,
+      body: formatDiagnosticLine(diag),
+    }));
+}
+
+async function createReviewWithComments({
   octokit,
   owner,
   repo,
   pullNumber,
   diagnostics,
+  totalDiagnostics,
+  warnings,
+  errors,
   maxComments = 0,
+  maxDiagnostics = 0,
   suppressWarnings = false,
   reviewEvent = "COMMENT",
-) {
-  if (!diagnostics || diagnostics.length === 0) {
+  changedFiles = [],
+}) {
+  if (!octokit || !pullNumber) {
     return null;
   }
 
-  // Filter out warnings if suppressed
-  let filtered = diagnostics;
-  if (suppressWarnings) {
-    filtered = diagnostics.filter((d) => d.level !== "warning");
-  }
-
-  if (filtered.length === 0) {
-    return null;
-  }
-
-  // Limit comments
-  const toComment = maxComments > 0 ? filtered.slice(0, maxComments) : filtered;
-
-  // Group by file and sort by line number
-  const comments = {};
-  for (const diag of toComment) {
-    if (!comments[diag.file]) {
-      comments[diag.file] = [];
-    }
-    comments[diag.file].push(diag);
-  }
-
-  // Sort each file's comments
-  for (const file in comments) {
-    comments[file].sort((a, b) => a.line - b.line);
-  }
-
-  // Build review body
-  const lines = ["## clang-format Review", ""];
-  const comments_array = [];
-
-  for (const file in comments) {
-    const fileComments = comments[file];
-    lines.push(`### ${file}`);
-    lines.push("");
-
-    for (const diag of fileComments) {
-      const emoji = diag.level === "error" ? "❌" : "⚠️";
-      lines.push(`${emoji} **Line ${diag.line}:** ${diag.message}`);
-      if (diag.check) {
-        lines.push(`   [${diag.check}]`);
-      }
-      lines.push("");
-
-      // Add inline comment
-      comments_array.push({
-        path: file,
-        line: diag.line,
-        body: `${emoji} ${diag.level.toUpperCase()}: ${diag.message}${diag.check ? ` (\`${diag.check}\`)` : ""}`,
-      });
-    }
-  }
-
-  const reviewBody = lines.join("\n");
-  const normalizedReviewEvent =
+  const normalizedEvent =
     String(reviewEvent || "COMMENT").toUpperCase() === "REQUEST_CHANGES"
       ? "REQUEST_CHANGES"
       : "COMMENT";
 
+  const comments = buildInlineComments(diagnostics, maxComments);
+  const body = buildReviewBody({
+    diagnostics,
+    totalDiagnostics,
+    warnings,
+    errors,
+    maxDiagnostics,
+    suppressWarnings,
+    changedFiles,
+  });
+
   try {
-    const review = await octokit.rest.pulls.createReview({
+    const response = await octokit.rest.pulls.createReview({
       owner,
       repo,
       pull_number: pullNumber,
-      body: reviewBody,
-      comments: comments_array.length > 0 ? comments_array : undefined,
-      event: comments_array.length > 0 ? normalizedReviewEvent : "APPROVE",
+      body,
+      comments: comments.length > 0 ? comments : undefined,
+      event: normalizedEvent,
     });
-
-    return review;
+    return response.data || response;
   } catch (err) {
     core.warning(`Failed to create PR review: ${err.message}`);
     return null;
   }
 }
 
-/**
- * Post a thread comment on a PR
- */
 async function postThreadComment(
   octokit,
   owner,
@@ -107,52 +137,53 @@ async function postThreadComment(
   body,
   mode = "update",
 ) {
+  if (!octokit || !pullNumber || mode === "off") {
+    return null;
+  }
+
   try {
     if (mode === "update") {
-      // Find existing comment from action
       const comments = await octokit.rest.issues.listComments({
         owner,
         repo,
         issue_number: pullNumber,
       });
 
-      const existingComment = comments.data.find(
-        (c) => c.user.type === "Bot" && c.body.startsWith("## clang-format"),
+      const existing = comments.data.find(
+        (comment) =>
+          comment.user?.type === "Bot" &&
+          String(comment.body || "").includes(REVIEW_MARKER),
       );
 
-      if (existingComment) {
-        await octokit.rest.issues.updateComment({
+      if (existing) {
+        const updated = await octokit.rest.issues.updateComment({
           owner,
           repo,
-          comment_id: existingComment.id,
+          comment_id: existing.id,
           body,
         });
-        return existingComment.id;
+        return updated?.data?.id ?? existing.id;
       }
     }
 
-    // Create new comment
-    const comment = await octokit.rest.issues.createComment({
+    const created = await octokit.rest.issues.createComment({
       owner,
       repo,
       issue_number: pullNumber,
       body,
     });
 
-    return comment?.data?.id ?? comment?.id ?? null;
+    return created?.data?.id ?? null;
   } catch (err) {
     core.warning(`Failed to post thread comment: ${err.message}`);
     return null;
   }
 }
 
-/**
- * Create GitHub file annotations for diagnostics
- */
 function annotateFiles(diagnostics, suppressWarnings = false) {
   const annotations = [];
 
-  for (const diag of diagnostics) {
+  for (const diag of diagnostics || []) {
     if (suppressWarnings && diag.level === "warning") {
       continue;
     }
@@ -164,30 +195,34 @@ function annotateFiles(diagnostics, suppressWarnings = false) {
           ? "warning"
           : "notice";
     const message = `${diag.message}${diag.check ? ` [${diag.check}]` : ""}`;
-
-    // Use core.notice, core.warning, or core.error
-    let annotation = {
+    const options = {
       file: diag.file,
-      line: diag.line,
-      col: diag.column,
+      startLine: diag.line,
+      endLine: diag.line,
+      startColumn: diag.column,
+      endColumn: diag.column,
       title: diag.check || "clang-format",
     };
 
     if (level === "error") {
-      core.error(message, annotation);
+      core.error(message, options);
     } else if (level === "warning") {
-      core.warning(message, annotation);
+      core.warning(message, options);
     } else {
-      core.notice(message, annotation);
+      core.notice(message, options);
     }
 
-    annotations.push({ level, message, ...annotation });
+    annotations.push({ level, message, ...options });
   }
 
   return annotations;
 }
 
 module.exports = {
+  REVIEW_MARKER,
+  formatDiagnosticLine,
+  buildReviewBody,
+  buildInlineComments,
   createReviewWithComments,
   postThreadComment,
   annotateFiles,
